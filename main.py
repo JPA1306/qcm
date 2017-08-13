@@ -64,19 +64,20 @@ class Elearn:
     self.__dict__.update(metadata.tables)
 
 #-------------------------------------------------------------------------------
-  def test_fill(self,chapter,lquestion,mmpp=.25):
+  def test_fill(self,chapter,lquestion,mmpp=.25,refdir='.'):
 #-------------------------------------------------------------------------------
     def qvalues():
       from PIL import Image
       from io import BytesIO
       for path,answers,correct in lquestion:
-        with Image.open(path) as img, BytesIO() as buf:
+        with Image.open(refdir/path) as img, BytesIO() as buf:
           format = img.format
           img = zealouscrop(img)
           img.save(buf,format=format)
           content = buf.getvalue()
           width,height = img.size
         yield {'chapter':chapter_oid,'answers':answers,'correct':correct,'content':content,'width':mmpp*width,'height':mmpp*height,'format':format}
+    refdir = Path(refdir)
     with self.eng.begin() as conn:
       chapter_oid = conn.execute(self.Chapter.insert().values({'title':chapter})).inserted_primary_key[0]
       if lquestion: conn.execute(self.Question.insert(),list(qvalues()))
@@ -140,26 +141,21 @@ class Questionnaire:
       self.papers = conn.execute(select(selc).where(cond)).fetchall()
 
 #-------------------------------------------------------------------------------
-  def dump_paper(self,paper,target):
+  def generate_svg(self,paper):
 #-------------------------------------------------------------------------------
-    from lxml.etree import tostring as tobytes
     from lxml.builder import ElementMaker
     from base64 import b64encode
-    from io import BytesIO
-    from PyPDF2 import PdfFileReader
-    from cairosvg import svg2pdf
-    def dump(): target.appendPagesFromReader(PdfFileReader(BytesIO(svg2pdf(tobytes(svg)))))
     E = ElementMaker(namespace='http://www.w3.org/2000/svg',nsmap={'xlink':'http://www.w3.org/1999/xlink'})
     pagetotal = self.questions[-1].page; page = None; svg = None
     for q in self.questions:
       if q.page != page:
-        if svg is not None: dump()
+        if svg is not None: yield svg
         page = q.page
         svg = E.svg(
           E.text(self.title,x='10mm',y='5mm',style='font-size:.8em; text-anchor:start;'),
           E.text(str(self.date),x='105mm',y='5mm',style='font-size:.8em; text-anchor:middle;'),
-          E.text('{0.oid}:{0.student}'.format(paper),x='200mm',y='5mm',style='font-size:.8em; text-anchor:end;'),
           E.text('{}/{}'.format(page,pagetotal),x='105mm',y='292mm',style='font-size:.8em; text-anchor:middle;'),
+          E.text('{0.oid}:{0.student}'.format(paper),x='200mm',y='5mm',style='font-size:.8em; text-anchor:end;'),
           width='210mm',
           height='297mm',
           )
@@ -173,15 +169,21 @@ class Questionnaire:
       for i,a in enumerate(q.answers):
         svg.append(E.text(a,x='{}mm'.format(27+i*4),y=ya,style='font-size:.8em; text-anchor:middle;'))
         svg.append(E.rect(x='{}mm'.format(25+i*4),y=yb,width='4mm',height='4mm',fill='white',stroke='black'))
-    dump()
+    yield svg
 
 #-------------------------------------------------------------------------------
-  def create_papers(self,path):
+  def to_pdf(self,students=None):
 #-------------------------------------------------------------------------------
-    from PyPDF2 import PdfFileWriter
+    from PyPDF2 import PdfFileReader, PdfFileWriter
+    from lxml.etree import tostring as tobytes
+    from cairosvg import svg2pdf
+    from io import BytesIO
     target = PdfFileWriter()
-    for p in self.papers: self.dump_paper(p,target)
-    with open(path,'wb') as v: target.write(v)
+    f = (lambda p: True) if students is None else (lambda p,L=students: p.student in L)
+    for paper in filter(f,self.papers):
+      for svg in self.generate_svg(paper):
+        target.appendPagesFromReader(PdfFileReader(BytesIO(svg2pdf(tobytes(svg)))))
+    return target
 
 #===============================================================================
 def zealouscrop(x,thr=255):
