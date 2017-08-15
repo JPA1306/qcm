@@ -152,10 +152,12 @@ class Questionnaire:
         if svg is not None: yield svg
         page = q.page
         svg = E.svg(
-          E.text(self.title,x='10mm',y='5mm',style='font-size:.8em; text-anchor:start;'),
+          E.circle(cx='7mm',cy='7mm',r='1mm',fill='black',stroke='none'),
+          E.circle(cx='203mm',cy='7mm',r='1mm',fill='black',stroke='none'),
+          E.text(self.title,x='20mm',y='5mm',style='font-size:.8em; text-anchor:start;'),
           E.text(str(self.date),x='105mm',y='5mm',style='font-size:.8em; text-anchor:middle;'),
+          E.text('{0.oid}:{0.student}'.format(paper),x='190mm',y='5mm',style='font-size:.8em; text-anchor:end;'),
           E.text('{}/{}'.format(page,pagetotal),x='105mm',y='292mm',style='font-size:.8em; text-anchor:middle;'),
-          E.text('{0.oid}:{0.student}'.format(paper),x='200mm',y='5mm',style='font-size:.8em; text-anchor:end;'),
           width='210mm',
           height='297mm',
           )
@@ -172,18 +174,18 @@ class Questionnaire:
     yield svg
 
 #-------------------------------------------------------------------------------
-  def to_pdf(self,students=None):
+  def to_pdf(self,target,students=None):
 #-------------------------------------------------------------------------------
     from PyPDF2 import PdfFileReader, PdfFileWriter
     from lxml.etree import tostring as tobytes
     from cairosvg import svg2pdf
     from io import BytesIO
-    target = PdfFileWriter()
+    pdf = PdfFileWriter()
     f = (lambda p: True) if students is None else (lambda p,L=students: p.student in L)
     for paper in filter(f,self.papers):
       for svg in self.generate_svg(paper):
-        target.appendPagesFromReader(PdfFileReader(BytesIO(svg2pdf(tobytes(svg)))))
-    return target
+        pdf.appendPagesFromReader(PdfFileReader(BytesIO(svg2pdf(tobytes(svg)))))
+    pdf.write(target)
 
 #===============================================================================
 def zealouscrop(x,thr=255):
